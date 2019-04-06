@@ -20,7 +20,14 @@ cloud:
 import os 
 import h5py 
 import numpy as np 
-# --- 
+import scipy as sp 
+import tensorflow as tf 
+# --- pydelfi --- 
+import pydelfi.ndes as NDEs
+import pydelfi.delfi as DELFI 
+import pydelfi.score as Score
+import pydelfi.priors as Priors 
+# --- sklearn ---
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR 
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel
 # --- plotting --- 
@@ -62,6 +69,7 @@ def makeSkewerCloud(seed=1):
     datdir = os.path.join(os.environ['MNULFI_DIR'], 'Peaks_MassiveNuS')
 
     thetas = np.load(os.path.join(datdir, 'params_conc_means.npy')) # thetas 
+    mudata = np.load(os.path.join(datdir, 'data_scaled_means.npy')) 
     cov = np.load(os.path.join(datdir, 'covariance.npy')) # covariance  
 
     GP = gpPeakcounts() # gaussian process 
@@ -73,51 +81,51 @@ def makeSkewerCloud(seed=1):
         mu_peak = GP.predict(np.atleast_2d(thetas[iskew,:]))
         peaks_skewers[iskew*9999:(iskew+1)*9999,:] += mu_peak 
 
+    #skewer_hull = Delaunay(sp.spatial.ConvexHull(thetas))
+    skewer_hull = sp.spatial.Delaunay(thetas)
     theta_lims = [(theta_skewers[:,i].min(), theta_skewers[:,i].max()) for i in range(theta_skewers.shape[1])]
 
     # generate cloud data 
-    theta_cloud = np.zeros_like(theta_skewers)
-    theta_cloud[:,0] = np.random.uniform(theta_lims[0][0], theta_lims[0][1], theta_skewers.shape[0])
-    theta_cloud[:,1] = np.random.uniform(theta_lims[1][0], theta_lims[1][1], theta_skewers.shape[0])
-    theta_cloud[:,2] = np.random.uniform(theta_lims[2][0], theta_lims[2][1], theta_skewers.shape[0])
+    _theta_cloud = np.zeros((4*theta_skewers.shape[0], 3))
+    _theta_cloud[:,0] = np.random.uniform(theta_lims[0][0], theta_lims[0][1], 4*theta_skewers.shape[0])
+    _theta_cloud[:,1] = np.random.uniform(theta_lims[1][0], theta_lims[1][1], 4*theta_skewers.shape[0])
+    _theta_cloud[:,2] = np.random.uniform(theta_lims[2][0], theta_lims[2][1], 4*theta_skewers.shape[0])
+
+    inhull = (skewer_hull.find_simplex(_theta_cloud) >= 0) 
+    theta_cloud = _theta_cloud[inhull,:][:theta_skewers.shape[0]]
 
     peaks_cloud = np.random.multivariate_normal(np.zeros(50), cov, size=theta_cloud.shape[0])
     mu_peaks = GP.predict(theta_cloud)
-    peaks_cloud += mu_peak
+    peaks_cloud += mu_peaks
     
-    # plot thetas 
+    # -- plot thetas --
     fig = plt.figure(figsize=(8,4))  
     sub = fig.add_subplot(121) 
-    sub.scatter(theta_cloud[::100,0], theta_cloud[::100,1], c='C0', label='Cloud') 
-    sub.scatter(theta_skewers[::100,0], theta_skewers[::100,1], c='C1', label='Skewer') 
+    sub.scatter(theta_cloud[::100,0], theta_cloud[::100,1], c='C0', s=2, label='Cloud') 
+    sub.scatter(theta_skewers[::100,0], theta_skewers[::100,1], c='C1', s=2, label='Skewer') 
     sub.set_xlabel(r'$\theta_1$', fontsize=20) 
     sub.set_xlim(theta_lims[0])
     sub.set_ylabel(r'$\theta_2$', fontsize=20) 
     sub.set_ylim(theta_lims[1])
 
     sub = fig.add_subplot(122) 
-    sub.scatter(theta_cloud[::100,2], theta_cloud[::100,1], c='C0', label='Cloud') 
-    sub.scatter(theta_skewers[::100,2], theta_skewers[::100,1], c='C1', label='Skewer') 
-    sub.legend(loc='lower right', frameon=True, fontsize=15) 
+    sub.scatter(theta_cloud[::100,2], theta_cloud[::100,1], c='C0', s=2, label='Cloud') 
+    sub.scatter(theta_skewers[::100,2], theta_skewers[::100,1], c='C1', s=2, label='Skewer') 
+    sub.legend(loc='lower right', frameon=True, handletextpad=0.1, markerscale=3, fontsize=15) 
     sub.set_xlabel(r'$\theta_3$', fontsize=20) 
     sub.set_xlim(theta_lims[2])
     sub.set_ylim(theta_lims[1])
     fig.savefig(os.path.join(datdir, 'theta.skewer_cloud.png'), bbox_inches='tight') 
 
-    # plot peak counts 
-    fig = plt.figure(figsize=(8,8))  
-    sub = fig.add_subplot(211) 
-    for i in range(1000): 
-        sub.plot(range(50), peaks_cloud[1000*i,:], c='k') 
+    # -- plot peak counts -- 
+    fig = plt.figure(figsize=(8,4))  
+    sub = fig.add_subplot(111) 
+    for i in range(100): 
+        sub.plot(range(50), peaks_cloud[10000*i,:], c='k', lw=0.2, label='Cloud') 
+        sub.plot(range(50), peaks_skewers[10000*i,:], c='C0', lw=0.2, label='Skewer') 
+        if i == 0: sub.legend(loc='upper right', fontsize=15) 
     sub.set_xlim(0, 49)
-
-    sub = fig.add_subplot(212) 
-    for i in range(1000): 
-        sub.plot(range(50), peaks_skewers[1000*i,:], c='k') 
-    sub.set_xlim(0, 49)
-    bkgd = fig.add_subplot(111, frameon=False) # x,y labels
-    bkgd.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
-    bkgd.set_ylabel('peak counts', fontsize=20) 
+    sub.set_ylabel('peak counts', labelpad=10, fontsize=20) 
     fig.savefig(os.path.join(datdir, 'peaks.skewer_cloud.png'), bbox_inches='tight') 
 
     # save skewer and cloud to files
@@ -126,8 +134,119 @@ def makeSkewerCloud(seed=1):
 
     theta_skewers.dump(os.path.join(datdir, 'theta.skewers.npy')) 
     peaks_skewers.dump(os.path.join(datdir, 'peaks.skewers.npy')) 
+
+    # score compress the peak data 
+    theta_fid = thetas[51,:]
+    _mu_fid = GP.predict(np.atleast_2d(theta_fid))
+    mu_fid = _mu_fid.flatten() 
+    h = 0.01
+
+    _mu_theta1p = GP.predict(np.atleast_2d(np.array([theta_fid[0]*(1+h), theta_fid[1], theta_fid[2]])))
+    _mu_theta1m = GP.predict(np.atleast_2d(np.array([theta_fid[0]*(1-h), theta_fid[1], theta_fid[2]])))
+    _mu_theta2p = GP.predict(np.atleast_2d(np.array([theta_fid[0], theta_fid[1]*(1+h), theta_fid[2]])))
+    _mu_theta2m = GP.predict(np.atleast_2d(np.array([theta_fid[0], theta_fid[1]*(1-h), theta_fid[2]])))
+    _mu_theta3p = GP.predict(np.atleast_2d(np.array([theta_fid[0], theta_fid[1], theta_fid[2]*(1+h)])))
+    _mu_theta3m = GP.predict(np.atleast_2d(np.array([theta_fid[0], theta_fid[1], theta_fid[2]*(1-h)])))
+
+    mu_theta1p = _mu_theta1p.flatten() 
+    mu_theta1m = _mu_theta1m.flatten() 
+    mu_theta2p = _mu_theta2p.flatten() 
+    mu_theta2m = _mu_theta2m.flatten() 
+    mu_theta3p = _mu_theta3p.flatten() 
+    mu_theta3m = _mu_theta3m.flatten() 
+
+    dmudt1 = (mu_theta1p - mu_theta1m)/(2. * h * theta_fid[0])
+    dmudt2 = (mu_theta2p - mu_theta2m)/(2. * h * theta_fid[1])
+    dmudt3 = (mu_theta3p - mu_theta3m)/(2. * h * theta_fid[2])
+    dmudt = np.vstack((dmudt1,dmudt2,dmudt3))
+    Cinv = np.linalg.inv(cov) 
+
+    Comp = Score.Gaussian(len(mu_fid), theta_fid, mu=mu_fid, Cinv=Cinv, dmudt=dmudt)
+    Comp.compute_fisher()
+    Finv = Comp.Finv
+    Finv.dump(os.path.join(datdir, 'peak.Finv.npy'))
+
+    scores_cloud = np.zeros((peaks_cloud.shape[0], 3)) 
+    scores_skewers = np.zeros((peaks_cloud.shape[0], 3)) 
+    for i in range(peaks_cloud.shape[0]): 
+        scores_cloud[i,:] = Comp.scoreMLE(peaks_cloud[i,:]) 
+        scores_skewers[i,:] = Comp.scoreMLE(peaks_skewers[i,:]) 
+
+    scores_fid = Comp.scoreMLE(mudata[51,:]) 
+    scores_fid.dump(os.path.join(datdir, 'scores.fid.npy')) 
+    scores_cloud.dump(os.path.join(datdir, 'scores.cloud.npy')) 
+    scores_skewers.dump(os.path.join(datdir, 'scores.skewers.npy')) 
+
+    # -- plot scores -- 
+    fig = plt.figure(figsize=(8,4))  
+    sub = fig.add_subplot(111) 
+    for i in range(100): 
+        sub.plot(range(3), scores_cloud[10000*i,:], c='k', lw=0.2, label='Cloud') 
+        sub.plot(range(3), scores_skewers[10000*i,:], c='C0', lw=0.2, label='Skewer') 
+        if i == 0: sub.legend(loc='upper right', fontsize=15) 
+    sub.set_xlim(0, 2)
+    sub.set_ylabel('peak count score', labelpad=10, fontsize=20) 
+    fig.savefig(os.path.join(datdir, 'scores.skewer_cloud.png'), bbox_inches='tight') 
     return None
 
 
+def skewerDELFI(): 
+    '''
+    '''
+    datdir = os.path.join(os.environ['MNULFI_DIR'], 'peaks_massivenus')
+    # fiducial theta and scores 
+    thetas = np.load(os.path.join(datdir, 'params_conc_means.npy')) # thetas 
+    theta_fid = thetas[51,:]
+    scores_fid = np.load(os.path.join(datdir, 'scores.fid.npy')) 
+
+    Finv = np.load(os.path.join(datdir, 'peak.Finv.npy')) # inverse fisher
+
+    theta_skewers = np.load(os.path.join(datdir, 'theta.skewers.npy')) 
+    scores_skewers = np.load(os.path.join(datdir, 'scores.skewers.npy')) 
+
+    # uniform prior
+    theta_lims = [(theta_skewers[:,i].min(), theta_skewers[:,i].max()) for i in range(theta_skewers.shape[1])]
+    lower = np.array([theta_lim[0] for theta_lim in theta_lims])
+    upper = np.array([theta_lim[1] for theta_lim in theta_lims])
+    prior = Priors.Uniform(lower, upper)
+
+    # create an ensemble of ndes
+    ndata = scores_skewers.shape[1]
+    ndes = [
+            NDEs.ConditionalMaskedAutoregressiveFlow(n_parameters=3, n_data=ndata, 
+                n_hiddens=[50,50], n_mades=5, act_fun=tf.tanh, index=0),
+            NDEs.MixtureDensityNetwork(n_parameters=3, n_data=ndata, n_components=1, 
+                n_hidden=[30,30], activations=[tf.tanh, tf.tanh], index=1),
+            NDEs.MixtureDensityNetwork(n_parameters=3, n_data=ndata, n_components=2, 
+                n_hidden=[30,30], activations=[tf.tanh, tf.tanh], index=2),
+            NDEs.MixtureDensityNetwork(n_parameters=3, n_data=ndata, n_components=3, 
+                n_hidden=[30,30], activations=[tf.tanh, tf.tanh], index=3),
+            NDEs.MixtureDensityNetwork(n_parameters=3, n_data=ndata, n_components=4, 
+                n_hidden=[30,30], activations=[tf.tanh, tf.tanh], index=4),
+            NDEs.MixtureDensityNetwork(n_parameters=3, n_data=ndata, n_components=5, 
+                n_hidden=[30,30], activations=[tf.tanh, tf.tanh], index=5)]
+
+    # create the delfi object
+    DelfiEnsemble = DELFI.Delfi(scores_fid, prior, ndes, 
+            Finv=Finv, 
+            theta_fiducial=theta_fid, 
+            param_limits = [lower, upper],
+            param_names = [r'M_\nu', '\Omega_m', 'A_s'],
+            results_dir = "./",
+            input_normalization=None) 
+    print('loading simulations') 
+    DelfiEnsemble.load_simulations(scores_skewers, theta_skewers) 
+    #DelfiEnsemble.fisher_pretraining()
+    print('training ndes') 
+    DelfiEnsemble.train_ndes() 
+    print('sampling') 
+    posterior_samples = DelfiEnsemble.emcee_sample()
+    pickle.dump(posterior_samples, open(os.path.join(datdir, 'skewer_posterior.p'), 'wb'))
+    DelfiEnsemble.triangle_plot(samples=[posterior_samples], savefig=True, 
+            filename=os.path.join(datdir, 'skewer_posterior.png'))
+    return None 
+
+
 if __name__=="__main__":
-    makeSkewerCloud()
+    #makeSkewerCloud()
+    skewerDELFI()
