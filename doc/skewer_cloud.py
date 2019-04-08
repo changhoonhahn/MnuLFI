@@ -35,6 +35,7 @@ from sklearn.gaussian_process.kernels import RBF, ConstantKernel
 import matplotlib as mpl
 mpl.use('Agg') 
 import matplotlib.pyplot as plt
+import corner as DFM
 mpl.rcParams['text.usetex'] = True
 mpl.rcParams['font.family'] = 'serif'
 mpl.rcParams['axes.linewidth'] = 1.5
@@ -209,8 +210,6 @@ def skewerscloud_NDE(sampling='skewers'):
     theta_lims = [(theta_samp[:,i].min(), theta_samp[:,i].max()) for i in range(theta_samp.shape[1])]
     lower = np.array([theta_lim[0] for theta_lim in theta_lims])
     upper = np.array([theta_lim[1] for theta_lim in theta_lims])
-    print(lower)
-    print(upper) 
     prior = Priors.Uniform(lower, upper)
 
     # create an ensemble of ndes
@@ -234,23 +233,36 @@ def skewerscloud_NDE(sampling='skewers'):
             theta_fiducial=theta_fid, 
             param_limits = [lower, upper],
             param_names = [r'M_\nu', '\Omega_m', 'A_s'],
-            results_dir = "./",
-            input_normalization=None) 
+            results_dir = './',
+            input_normalization='fisher') 
     print('loading simulations') 
     DelfiEnsemble.load_simulations(scores_samp, theta_samp) 
-    #DelfiEnsemble.fisher_pretraining()
+    DelfiEnsemble.fisher_pretraining()
     print('training ndes') 
     DelfiEnsemble.train_ndes() 
     print('sampling') 
     posterior_samples = DelfiEnsemble.emcee_sample()
     pickle.dump(posterior_samples, open(os.path.join(datdir, 'posterior.%s.p' % sampling), 'wb'))
-    #DelfiEnsemble.triangle_plot(samples=[posterior_samples], savefig=True, 
-    #        filename=os.path.join(datdir, 'posterior.%s.png'))
+    return None 
+
+
+def plot_skewerscloud_posterior(sampling='skewers'): 
+    ''' plot the posterior distribution dumped by skewerscloud_NDE
+    '''
+    datdir = os.path.join(os.environ['MNULFI_DIR'], 'peaks_massivenus')
+    # read in posterior dump 
+    post = pickle.load(open(os.path.join(datdir, 'posterior.%s.p' % sampling), 'rb'))
+
+    fig = DFM.corner(post, labels=[r'$M_\nu$', '$\Omega_m$', '$A_s$'], 
+            quantiles=[0.16, 0.5, 0.84], bins=25, smooth=True, show_titles=True, label_kwargs={'fontsize': 20}) 
+    fig.savefig(os.path.join(datdir, 'posterior.%s.png' % sampling), bbox_inch='tight')
     return None 
 
 
 if __name__=="__main__":
     #makeSkewerCloud()
     #skewerNDE()
-    skewerscloud_NDE(sampling='skewers') 
-    skewerscloud_NDE(sampling='cloud') 
+    #skewerscloud_NDE(sampling='skewers') 
+    #skewerscloud_NDE(sampling='cloud') 
+    plot_skewerscloud_posterior(sampling='skewers')
+    plot_skewerscloud_posterior(sampling='cloud')
