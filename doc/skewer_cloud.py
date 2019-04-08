@@ -19,6 +19,7 @@ cloud:
 '''
 import os 
 import h5py 
+import pickle 
 import numpy as np 
 import scipy as sp 
 import tensorflow as tf 
@@ -190,7 +191,7 @@ def makeSkewerCloud(seed=1):
     return None
 
 
-def skewerDELFI(): 
+def skewerscloud_NDE(sampling='skewers'): 
     '''
     '''
     datdir = os.path.join(os.environ['MNULFI_DIR'], 'peaks_massivenus')
@@ -200,31 +201,32 @@ def skewerDELFI():
     scores_fid = np.load(os.path.join(datdir, 'scores.fid.npy')) 
 
     Finv = np.load(os.path.join(datdir, 'peak.Finv.npy')) # inverse fisher
-
-    theta_skewers = np.load(os.path.join(datdir, 'theta.skewers.npy')) 
-    scores_skewers = np.load(os.path.join(datdir, 'scores.skewers.npy')) 
+    
+    theta_samp  = np.load(os.path.join(datdir, 'theta.%s.npy' % sampling)) 
+    scores_samp = np.load(os.path.join(datdir, 'scores.%s.npy' % sampling)) 
 
     # uniform prior
-    theta_lims = [(theta_skewers[:,i].min(), theta_skewers[:,i].max()) for i in range(theta_skewers.shape[1])]
+    theta_lims = [(theta_samp[:,i].min(), theta_samp[:,i].max()) for i in range(theta_samp.shape[1])]
     lower = np.array([theta_lim[0] for theta_lim in theta_lims])
     upper = np.array([theta_lim[1] for theta_lim in theta_lims])
+    print(lower)
+    print(upper) 
     prior = Priors.Uniform(lower, upper)
 
     # create an ensemble of ndes
-    ndata = scores_skewers.shape[1]
-    ndes = [
-            NDEs.ConditionalMaskedAutoregressiveFlow(n_parameters=3, n_data=ndata, 
-                n_hiddens=[50,50], n_mades=5, act_fun=tf.tanh, index=0),
-            NDEs.MixtureDensityNetwork(n_parameters=3, n_data=ndata, n_components=1, 
-                n_hidden=[30,30], activations=[tf.tanh, tf.tanh], index=1),
-            NDEs.MixtureDensityNetwork(n_parameters=3, n_data=ndata, n_components=2, 
-                n_hidden=[30,30], activations=[tf.tanh, tf.tanh], index=2),
-            NDEs.MixtureDensityNetwork(n_parameters=3, n_data=ndata, n_components=3, 
-                n_hidden=[30,30], activations=[tf.tanh, tf.tanh], index=3),
-            NDEs.MixtureDensityNetwork(n_parameters=3, n_data=ndata, n_components=4, 
-                n_hidden=[30,30], activations=[tf.tanh, tf.tanh], index=4),
-            NDEs.MixtureDensityNetwork(n_parameters=3, n_data=ndata, n_components=5, 
-                n_hidden=[30,30], activations=[tf.tanh, tf.tanh], index=5)]
+    ndata = scores_samp.shape[1]
+    ndes = [NDEs.ConditionalMaskedAutoregressiveFlow(n_parameters=3, n_data=ndata, 
+        n_hiddens=[50,50], n_mades=5, act_fun=tf.tanh, index=0)]
+    #        NDEs.MixtureDensityNetwork(n_parameters=3, n_data=ndata, n_components=1, 
+    #            n_hidden=[30,30], activations=[tf.tanh, tf.tanh], index=1),
+    #        NDEs.MixtureDensityNetwork(n_parameters=3, n_data=ndata, n_components=2, 
+    #            n_hidden=[30,30], activations=[tf.tanh, tf.tanh], index=2),
+    #        NDEs.MixtureDensityNetwork(n_parameters=3, n_data=ndata, n_components=3, 
+    #            n_hidden=[30,30], activations=[tf.tanh, tf.tanh], index=3),
+    #        NDEs.MixtureDensityNetwork(n_parameters=3, n_data=ndata, n_components=4, 
+    #            n_hidden=[30,30], activations=[tf.tanh, tf.tanh], index=4),
+    #        NDEs.MixtureDensityNetwork(n_parameters=3, n_data=ndata, n_components=5, 
+    #            n_hidden=[30,30], activations=[tf.tanh, tf.tanh], index=5)]
 
     # create the delfi object
     DelfiEnsemble = DELFI.Delfi(scores_fid, prior, ndes, 
@@ -235,18 +237,20 @@ def skewerDELFI():
             results_dir = "./",
             input_normalization=None) 
     print('loading simulations') 
-    DelfiEnsemble.load_simulations(scores_skewers, theta_skewers) 
+    DelfiEnsemble.load_simulations(scores_samp, theta_samp) 
     #DelfiEnsemble.fisher_pretraining()
     print('training ndes') 
     DelfiEnsemble.train_ndes() 
     print('sampling') 
     posterior_samples = DelfiEnsemble.emcee_sample()
-    pickle.dump(posterior_samples, open(os.path.join(datdir, 'skewer_posterior.p'), 'wb'))
-    DelfiEnsemble.triangle_plot(samples=[posterior_samples], savefig=True, 
-            filename=os.path.join(datdir, 'skewer_posterior.png'))
+    pickle.dump(posterior_samples, open(os.path.join(datdir, 'posterior.%s.p' % sampling), 'wb'))
+    #DelfiEnsemble.triangle_plot(samples=[posterior_samples], savefig=True, 
+    #        filename=os.path.join(datdir, 'posterior.%s.png'))
     return None 
 
 
 if __name__=="__main__":
     #makeSkewerCloud()
-    skewerDELFI()
+    #skewerNDE()
+    skewerscloud_NDE(sampling='skewers') 
+    skewerscloud_NDE(sampling='cloud') 
